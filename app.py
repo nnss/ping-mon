@@ -133,8 +133,8 @@ $(function () {
             zoomType: 'x'
         },
         credits: {
-                  text: 'Vizrt support team',
-                  href: 'http://www.vizrt.com',
+                  text: 'oops support team',
+                  href: 'http://nnss.com.ar',
                   style: {
                        color: '#fe8503',
                        fontSize: '9px'
