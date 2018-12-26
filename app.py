@@ -1,10 +1,15 @@
-from flask import Flask, request, send_from_directory
-from apscheduler.schedulers.background import BackgroundScheduler
-
+import datetime
+import os
+import re
 import subprocess
 import sys
-import re
-import datetime
+from functools import wraps
+from urllib.error import URLError
+from urllib.request import urlopen
+
+import time
+from apscheduler.schedulers.background import BackgroundScheduler
+from flask import Flask, send_from_directory
 from pydblite import Base
 
 
@@ -13,30 +18,41 @@ class Config(object):
 
 
 class PingMon:
-    def __init__(self, dbh="", debug=True):
+    def __init__(self, dbh: Base, debug: object = True, ips: [] = ['8.8.8.8', '172.27.1.1']) -> None:
+        """ The initialization gets:
+        * dbh (Base object)
+        * debug
+        * ip (array)
+        In a future, could get also cmd
+        """
         self.options_from_ini_file = ""
         self.debug = debug
         self.c_error = ''
-        self.ips = ['8.8.8.8']
+        self.ips = ips
         self.db = dbh
+        self.cmd = 'ping -c1'
 
     def jobs(self):
+        """ For each IP defined runs the command (ping -c1)."""
         for ip in self.ips:
             dt = datetime.datetime.now()
-            my_out = self.job("ping -c1 " + ip)
+            my_out = self.job(self.cmd + " " + ip)
             search = re.search(r'.*ttl=\d+\s+time=(\S+)\s.*', my_out, re.MULTILINE)
             if search:
-                self.save(ip, search.group(1), dt)
+                self.save(ip, search.group(1), str(dt))
             else:
                 self.save(ip, "-50", str(dt))
+        return self
 
-    def save(self, ip='', result='', dt=str(datetime.datetime.now())):
+    def save(self, ip='', result='', dt=datetime.datetime.now()):
+        """ Saves the info in the DB. returns nothing'"""
         self.db.insert(ip, result, str(dt))
         self.db.commit()
         return
 
     def job(self, cmd):
-        # print("Hola Mundo!")
+        """ The job to execute (cmd + host) and return the """
+        # self.pd("Inside JOB!")
         my_cmd = cmd.split(' ')
         # self.pd("proc " + str(my_cmd))
         output, error = subprocess.Popen(my_cmd,
@@ -51,6 +67,43 @@ class PingMon:
             return None
         else:
             return output
+
+    def retry(exception_to_check, tries=4, delay=3, backoff=2, logger=None):
+        def deco_retry(f):
+            @wraps(f)
+            def f_retry(*args, **kwargs):
+                mtries, mdelay = tries, delay
+                while mtries > 1:
+                    try:
+                        return f(*args, **kwargs)
+                    except exception_to_check as e:
+                        msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
+                        if logger:
+                            logger.warning(msg)
+                        else:
+                            print(msg)
+                        time.sleep(mdelay)
+                        mtries -= 1
+                        mdelay *= backoff
+                return f(*args, **kwargs)
+
+            return f_retry  # true decorator
+
+        return deco_retry
+
+    @retry(URLError, tries=4, delay=3, backoff=2)
+    def get_url(self, url):
+        po = re.compile(r".*/([^/]+)$").match(url)
+        if po:
+            if os.path.isfile("cache/" + po.group(1)):
+                return open("cache/" + po.group(1), "r").read()
+            else:
+                ca = urlopen(url).read()
+                local = open("cache/" + po.group(1), "w")
+                local.write(ca)
+                return ca
+        else:
+            return urlopen(url).read()
 
     def pd(self, msg=None):
         if msg is not None and self.debug:
@@ -75,13 +128,18 @@ sched.start()
 
 @app.route('/')
 def hello_world():
+    carry = ""
+    for ip in pm.ips:
+        carry += "<li><a href='/by_host/" + ip + "'>by host " + ip + "</a></li>"
+
     return """
 <html>
 <head><title>SimpleMonPing</title>
 </head>
 <body>
 <h1>Options</h1>
-<ul><li><a href='/by_host'>by host</a></li>
+<ul>
+""" + carry + """
 </ul>
 <footer>""" + str(sched.state) + " " + str(sched.get_jobs()) + """</footer>
 </body>
@@ -89,10 +147,15 @@ def hello_world():
 """
 
 
-@app.route('/by_host')
-def by_host():
+@app.route('/by_host/<ip>')
+def by_host(ip='8.8.8.8'):
     carry = ''
-    results = db(host='8.8.8.8')
+    carry_title = ""
+    for my_ip in pm.ips:
+        carry_title += "<li><a href='/by_host/" + my_ip + "'>by host " + my_ip + "</a></li>"
+    carry_lost = ""
+
+    results = db(host=ip)
     for result in results:
         t = datetime.datetime.strptime(result['datetime'], "%Y-%m-%d %H:%M:%S.%f")
         if t > (datetime.datetime.now() - datetime.timedelta(days=1)):
@@ -147,7 +210,18 @@ $(function () {
             allowDecimals: false,
             title: {
                 text: 'host'
-            }
+            },
+                plotLines:[{
+                            value:0,
+                            color: '#ff0000',
+                            width:2,
+                            zIndex:4,
+                }],
+        },
+        xAxis: {
+            title: {
+                    text: 'xAxis'
+                    },
         },
         title: {
             text: 'Data from PING'
@@ -163,7 +237,9 @@ $(function () {
 //]]
   </script>
     <style>
-.rounded-corner{font-family:"Lucida Sans Unicode", "Lucida Grande", Sans-Serif;font-size:12px;width:480px;text-align:left;border-collapse:collapse;margin:20px;}
+.rounded-corner{font-family:"Lucida Sans Unicode", "Lucida Grande",
+    Sans-Serif;font-size:12px;width:480px;text-align:left;
+    border-collapse:collapse;margin:20px;}
 .rounded-corner thead th.rounded-company{background:#b9c9fe ;}
 .rounded-corner thead th.rounded-q4{background:#b9c9fe ;}
 .rounded-corner th{font-weight:normal;font-size:13px;color:#039;background:#ff7f00;padding:8px;}
@@ -178,7 +254,8 @@ table tr:last-child td:last-child { border-bottom-right-radius: 16px; }
   </style>
     </head>
     <body>
-    <h1>list</h1>
+    <h1>list for """ + ip + """</h1>
+    <ul>""" + carry_title + """
     <div id='container' style='min-width: 310px; height: 400px; margin: 0 auto'></div>
     <div style='position: relative; left: 50%; widh: 100%;'><button>show table</div>
     <table id='datatable' class='rounded-corner'>
@@ -187,8 +264,9 @@ table tr:last-child td:last-child { border-bottom-right-radius: 16px; }
     """ + str(carry) + """
     </tbody>
     </table>
-    <footer>Sched state: """ + str(sched.state) + \
-          "<br /> Last updated:" + str(datetime.datetime.now().isoformat()) + """
+    <footer>Schedule state: """ + str(sched.state) + \
+          "<br /> Last updated:" + str(datetime.datetime.now().isoformat()) + """<br />
+          Stats LOST: """ + "" + """
     </footer>
     </body>
     </html>    
