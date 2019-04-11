@@ -8,16 +8,17 @@ source $WD/venv/bin/activate
 case "$1" in
   start)
     cd $WD
-    python -m Flask app
+    source "${WD}/venv/bin/activate"
+    #python -m Flask app
+    FLASK_APP=app.py nohup flask run &
     ;;
   stop)
-    PID=$((ps -ef|grep -i Flask|grep -i python|grep app|perl -ane 'print $F[1]'))
-    for p in PIDS; do
-        kill -15 $p
-    done
+    ps -ef|grep -i python|grep  -i flask
+    ps -ef|grep -i python|grep  -i flask|perl -ane 'kill 15,$F[1] '
+    ps -ef|grep -i python|grep  -i flask
     ;;
   *)
-    echo $0 <start|stop>
+    echo "$0 <start|stop>"
     ;;
 esac
 

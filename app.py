@@ -156,6 +156,8 @@ def by_host(ip='8.8.8.8'):
     carry_lost = ""
 
     results = db(host=ip)
+    results = sorted(results, key=lambda kv: kv['datetime'])
+
     for result in results:
         t = datetime.datetime.strptime(result['datetime'], "%Y-%m-%d %H:%M:%S.%f")
         if t > (datetime.datetime.now() - datetime.timedelta(days=1)):
@@ -228,8 +230,9 @@ $(function () {
         },
         tooltip: {
             formatter: function () {
-                    return '<b>' + this.series.name + '</b><br/>' +
-                          this.point.y + ' ' + this.point.name;
+                    tmpTime = new Date(parseInt(this.point.x) + 10800000);
+                    return '<b>' + this.series.name + '</b><br/>y: ' +
+                          this.point.y + ' x: ' + tmpTime.toString();
             }
         }
     });
