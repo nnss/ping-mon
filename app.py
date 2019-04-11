@@ -285,4 +285,4 @@ def send_js(path):
 if __name__ == "__main__":
     sched.start()
     print(str(sched.get_jobs()))
-    app.run()
+    app.run(host="0.0.0.0")
