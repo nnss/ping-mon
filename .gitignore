@@ -1,0 +1,26 @@
+# Ignore bundler config.
+/.bundle
+
+# Ignore the default SQLite database.
+/db/*
+*.pdl
+
+/venv/*
+
+# IDE
+/.idea/*
+
+# Ignore all logfiles and tempfiles.
+/log/*
+/tmp/*
+!/log/.keep
+!/tmp/.keep
+
+# Ignore Byebug command history file.
+.byebug_history
+*.back
+/db/backup/
+*.rb.no
+nohup.out
+.gitignore
+
