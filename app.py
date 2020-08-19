@@ -240,7 +240,7 @@ $(function () {
             zoomType: 'x'
         },
         credits: {
-                  text: 'oops support team',
+                  text: 'Maias "nnss" Palomec',
                   href: 'http://nnss.com.ar',
                   style: {
                        color: '#fe8503',
