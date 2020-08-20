@@ -1,19 +1,19 @@
 import datetime
 import os
+import platform
 import re
 import subprocess
-import platform
 import sys
+import time
 from functools import wraps
 from urllib.error import URLError
 from urllib.request import urlopen
 
-import time
-from apscheduler.schedulers.background import BackgroundScheduler, BaseScheduler
-#from flask import Flask, send_from_directory, redirect
+# from flask import Flask, send_from_directory, redirect
 import flask
+import jinja2
+from apscheduler.schedulers.background import BackgroundScheduler
 from pydblite import Base
-from werkzeug.exceptions import BadRequestKeyError
 
 
 class Config(object):
@@ -143,8 +143,8 @@ sched = BackgroundScheduler()
 job = sched.add_job(pm.jobs, 'interval', minutes=1)
 sched.start()
 
-def html_headers():
-    return """<html>
+base_html = """
+<html>
     <head><title>ping-mon</title>
      <meta http-equiv="refresh" content="30">
     <script src="/js/jquery-1.12.1.min.js"></script>
@@ -153,70 +153,7 @@ def html_headers():
     <script src="/js/exporting.js"></script>
     <script src="/js/data.js"></script>
     <script src="/js/export-data.js"></script>
-    <style>
-.rounded-corner{font-family:"Lucida Sans Unicode", "Lucida Grande",
-    Sans-Serif;font-size:12px;width:480px;text-align:left;
-    border-collapse:collapse;margin:20px;}
-.rounded-corner thead th.rounded-company{background:#b9c9fe ;}
-.rounded-corner thead th.rounded-q4{background:#b9c9fe ;}
-.rounded-corner th{font-weight:normal;font-size:13px;color:#039;background:#ff7f00;padding:8px;}
-.rounded-corner td{background:#ffd4aa;border-top:1px solid #fff;color:#669;padding:8px;}
-.rounded-corner tfoot td.rounded-foot-left{background:#e8edff ; }
-.rounded-corner tfoot td.rounded-foot-right{background:#e8edff ; }
-.rounded-corner tbody tr:hover td{background:#d0dafd;}
-table tr:first-child th:first-child, table.Info tr:first-child td:first-child { border-top-left-radius: 16px; }
-table tr:first-child th:last-child, table.Info tr:first-child td:last-child { border-top-right-radius: 16px; }
-table tr:last-child td:first-child { border-bottom-left-radius: 16px; }
-table tr:last-child td:last-child { border-bottom-right-radius: 16px; }
-  </style>
-    """
-
-
-def html_footer():
-    return """
-    <nav><ul><li><a href="/config">config</a></li><li><a href="/">Home</a></li>
-    <li><a href="/status">status</a></li></ul></nav>
-    </body></html>
-    """
-
-
-@app.route('/')
-def home():
-    carry = ""
-    if pm.ips is None:
-        return flask.redirect("/config")
-    for ip in pm.ips:
-        carry += "<li><a href='/by_host/" + ip + "'>by host " + ip + "</a></li>"
-
-    return html_headers() + """
-<body>
-<h1>Options</h1>
-<ul>
-""" + carry + """
-</ul>
-<footer>""" + str(sched.state) + " " + str(sched.get_jobs()) + """</footer>  
-""" + html_footer()
-
-
-@app.route('/by_host/<ip>')
-def by_host(ip='8.8.8.8'):
-    carry = ''
-    carry_title = ""
-    for my_ip in pm.ips:
-        carry_title += "<li><a href='/by_host/" + my_ip + "'>by host " + my_ip + "</a></li>"
-    carry_lost = ""
-
-    results = db(host=ip)
-    results = sorted(results, key=lambda kv: kv['datetime'])
-
-    for result in results:
-        t = datetime.datetime.strptime(result['datetime'], "%Y-%m-%d %H:%M:%S.%f")
-        if t > (datetime.datetime.now() - datetime.timedelta(days=1)):
-            # carry += '<tr><td>' + str(result['host']) + '</td><td>' + str(result['datetime']) + '</td><td>' + \
-            #           str(result['result']) + '</td></tr>'
-            carry += '<tr><td>' + str(result['datetime']) + '</td><td>' + str(result['result']) + '</td></tr>'
-    ret = html_headers() + """
-    <script type='text/javascript'>
+        <script type='text/javascript'>
 //<![CDATA[
 $(document).ready(function(){
   $('#datatable').hide();
@@ -241,14 +178,14 @@ $(function () {
         },
         credits: {
                   text: 'Maias "nnss" Palomec',
-                  href: 'http://nnss.com.ar',
+                  href: 'http://nnss.net.ar',
                   style: {
                        color: '#fe8503',
                        fontSize: '9px'
                   }
         },
         legend: {
-                 enable: true
+                 enable: false
         },
         yAxis: {
             allowDecimals: false,
@@ -264,7 +201,7 @@ $(function () {
         },
         xAxis: {
             title: {
-                    text: 'xAxis'
+                    text: 'Date'
                     },
         },
         title: {
@@ -281,24 +218,97 @@ $(function () {
 });
 //]]
   </script>
+    <style>
+.rounded-corner{font-family:"Lucida Sans Unicode", "Lucida Grande",
+    Sans-Serif;font-size:12px;width:480px;text-align:left;
+    border-collapse:collapse;margin:20px;}
+.rounded-corner thead th.rounded-company{background:#b9c9fe ;}
+.rounded-corner thead th.rounded-q4{background:#b9c9fe ;}
+.rounded-corner th{font-weight:normal;font-size:13px;color:#039;background:#ff7f00;padding:8px;}
+.rounded-corner td{background:#ffd4aa;border-top:1px solid #fff;color:#669;padding:8px;}
+.rounded-corner tfoot td.rounded-foot-left{background:#e8edff ; }
+.rounded-corner tfoot td.rounded-foot-right{background:#e8edff ; }
+.rounded-corner tbody tr:hover td{background:#d0dafd;}
+table tr:first-child th:first-child, table.Info tr:first-child td:first-child { border-top-left-radius: 16px; }
+table tr:first-child th:last-child, table.Info tr:first-child td:last-child { border-top-right-radius: 16px; }
+table tr:last-child td:first-child { border-bottom-left-radius: 16px; }
+table tr:last-child td:last-child { border-bottom-right-radius: 16px; }
+.main {   padding: 16px;
+  margin-top: 30px;
+  height: 1500px; /* Used in this example to enable scrolling */
+}
+.topnav {   overflow: hidden;
+  background-color: #333;
+  position: fixed;
+  top: 0;
+  width: 100%; }
+.topnav a { float: left; display: block; color: #f2f2f2; text-align: center;padding: 14px 16px; text-decoration: none; }
+.topnav a:hover { background-color: #ddd; color: black;}
+  </style>
     </head>
     <body>
-    <h1>list for """ + ip + """</h1>
-    <ul>""" + carry_title + """
+    <div class="topnav">
+      <a href="/">Home</a>
+      <a href="/config">Config</a>
+      <a href="/status">Status</a>
+    </div>
+    <div class="main">
+    <h1>{{title}}</h1>
+
+    <ul>
+    {{body}}
+    </div>
+    </body>
+    </html>
+"""
+tmpl = jinja2.Template(base_html)
+
+
+@app.route('/')
+def home():
+    carry = ""
+    if pm.ips is None:
+        return flask.redirect("/config")
+    for ip in pm.ips:
+        carry += "<li><a href='/by_host/" + ip + "'>by host " + ip + "</a></li>"
+
+    ret = """
+<h1>Options</h1>
+<ul>
+""" + carry + """
+</ul>
+<footer>""" + str(sched.state) + " " + str(sched.get_jobs()) + """</footer>  
+"""
+    return tmpl.render(body=ret)
+
+@app.route('/by_host/<ip>')
+def by_host(ip='8.8.8.8'):
+    carry = ''
+    carry_title = ""
+    for my_ip in pm.ips:
+        carry_title += "<li><a href='/by_host/" + my_ip + "'>by host " + my_ip + "</a></li>"
+
+    results = db(host=ip)
+    results = sorted(results, key=lambda kv: kv['datetime'])
+
+    for result in results:
+        t = datetime.datetime.strptime(result['datetime'], "%Y-%m-%d %H:%M:%S.%f")
+        if t > (datetime.datetime.now() - datetime.timedelta(days=1)):
+            # carry += '<tr><td>' + str(result['host']) + '</td><td>' + str(result['datetime']) + '</td><td>' + \
+            #           str(result['result']) + '</td></tr>'
+            carry += '<tr><td>' + str(result['datetime']) + '</td><td>' + str(result['result']) + '</td></tr>'
+    ret = """
     <div id='container' style='min-width: 310px; height: 400px; margin: 0 auto'></div>
     <div style='position: relative; left: 50%; widh: 100%;'><button>show table</div>
     <table id='datatable' class='rounded-corner'>
     <thead><tr><th>date time</th><th>result</th></tr></thead>
-    <tbody>
-    """ + str(carry) + """
-    </tbody>
+    <tbody>""" + carry + """</tbody>
     </table>
     <footer>Schedule state: """ + str(sched.state) + \
           "<br /> Last updated:" + str(datetime.datetime.now().isoformat()) + """<br />
-          Stats LOST: """ + "" + """
     </footer>   
-    """ + html_footer()
-    return ret
+    """
+    return tmpl.render(title="Home", body=ret)
 
 
 @app.route('/js/<path:path>')
@@ -309,7 +319,8 @@ def send_js(path):
 @app.route("/status")
 def status():
     global sched
-    return html_headers() + "</head></body><h1>Status</h1><pre>" + str(sched.get_jobs()) + "</pre>" + html_footer()
+    ret = "<h1>Status</h1><pre>" + str(sched.get_jobs()) + "</pre>"
+    return tmpl.render(body=ret)
 
 
 @app.route("/config/", methods=['GET', 'POST'])
@@ -328,10 +339,11 @@ def general_config():
             print(sched.state)
         return flask.redirect("/")
     if pm.ips is not None and ip is not None and ip in pm.ips:
-        return html_headers() + """</head><body><h1>IP already added</h1></body></html>"""
-    return html_headers() + """</head><body><h1>Add IP to monitor</h1>
+        return tmpl.render(body="""</head><body><h1>IP already added</h1></body></html>""")
+    ret = """<h1>Add IP to monitor</h1>
     <form action="/config" method="get"><label>ip</label><input type="text" name="ip" /><input type="submit">
-    """ + html_footer()
+    """
+    return tmpl.render(body=ret)
 
 
 if __name__ == "__main__":
