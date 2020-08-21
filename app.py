@@ -8,7 +8,6 @@ import time
 from functools import wraps
 from urllib.error import URLError
 from urllib.request import urlopen
-
 # from flask import Flask, send_from_directory, redirect
 import flask
 import jinja2
@@ -21,13 +20,15 @@ class Config(object):
 
 
 class PingMon:
-    def __init__(self, dbh: Base, debug: object = True, ips: [] = list()) -> None:
+    def __init__(self, dbh: Base, debug: object = True, ips=None) -> None:
         """ The initialization gets:
         * dbh (Base object)
         * debug
         * ip (array)
         In a future, could get also cmd
         """
+        if ips is None:
+            ips = list()
         self.options_from_ini_file = ""
         self.debug = debug
         self.c_error = ''
@@ -52,9 +53,9 @@ class PingMon:
             else:
                 search = re.search(r'.*ttl=\d+\s+time=(\S+)\s.*', my_out, re.MULTILINE)
             if search:
-                self.save(ip, search.group(1), str(dt))
+                self.save(ip, search.group(1), dt)
             else:
-                self.save(ip, "-50", str(dt))
+                self.save(ip, "-50", dt)
         return self
 
     def save(self, ip='', result='', dt=datetime.datetime.now()):
@@ -68,7 +69,7 @@ class PingMon:
         # self.pd("Inside JOB!")
         my_cmd = cmd.split(' ')
         # self.pd("proc " + str(my_cmd))
-        #print("cmd is " + my_cmd)
+        # print("cmd is " + my_cmd)
         output, error = subprocess.Popen(my_cmd,
                                          shell=False,
                                          stdout=subprocess.PIPE,
@@ -86,7 +87,8 @@ class PingMon:
         else:
             return output
 
-    def retry(exception_to_check, tries=4, delay=3, backoff=2, logger=None):
+    def retry(exception_to_check, tries: object = 4, delay: object = 3, backoff: object = 2,
+              logger: object = None) -> object:
         def deco_retry(f):
             @wraps(f)
             def f_retry(*args, **kwargs):
@@ -281,6 +283,7 @@ def home():
 """
     return tmpl.render(body=ret)
 
+
 @app.route('/by_host/<ip>')
 def by_host(ip='8.8.8.8'):
     carry = ''
@@ -334,8 +337,8 @@ def general_config():
             pm.add_ping_host(ip)
             job.remove()
             job = sched.add_job(pm.jobs, 'interval', minutes=1)
-            #sched.shutdown()
-            #sched.start()
+            # sched.shutdown()
+            # sched.start()
             print(sched.state)
         return flask.redirect("/")
     if pm.ips is not None and ip is not None and ip in pm.ips:
