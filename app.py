@@ -48,7 +48,7 @@ class PingMon:
         for ip in self.ips:
             dt = datetime.datetime.now()
             my_out = self.job(self.cmd + " " + ip)
-            if platform.node():
+            if platform.system().lower() == 'windows':
                 search = re.search(r'.*Media = (\d+)ms.*', my_out, re.MULTILINE)
             else:
                 search = re.search(r'.*ttl=\d+\s+time=(\S+)\s.*', my_out, re.MULTILINE)
@@ -143,7 +143,8 @@ else:
 pm = PingMon(dbh=db, debug=False)
 sched = BackgroundScheduler()
 job = sched.add_job(pm.jobs, 'interval', minutes=1)
-sched.start()
+
+
 
 base_html = """
 <html>
@@ -316,7 +317,8 @@ def by_host(ip='8.8.8.8'):
 
 @app.route('/js/<path:path>')
 def send_js(path):
-    return flask.send_from_directory('static', path)
+    return flask.redirect("/static/" + path)
+    # return flask.send_from_directory('static', path)
 
 
 @app.route("/status")
