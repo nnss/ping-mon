@@ -1,22 +1,42 @@
 import datetime
-import os
-import platform
-import re
-import subprocess
-import sys
-import time
-from functools import wraps
-from urllib.error import URLError
-from urllib.request import urlopen
-# from flask import Flask, send_from_directory, redirect
+import logging
+
 import flask
 import jinja2
+import ping3
+from apscheduler.schedulers import SchedulerAlreadyRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
 from pydblite import Base
 
 
 class Config(object):
     SCHEDULER_API_ENABLED = True
+
+
+def valid_ip(ip):
+    """
+    :type ip: str
+    :rtype: str
+    """
+    def is_v4(s):
+        try:
+            return str(int(s)) == s and 0 <= int(s) <= 255
+        except:
+            return False
+
+    def is_v6(s):
+        if len(s) > 4:
+            return False
+        try:
+            return int(s, 16) >= 0 and s[0] != '-'
+        except:
+            return False
+
+    if ip.count(".") == 3 and all(is_v4(i) for i in ip.split(".")):
+        return "IPv4"
+    if ip.count(":") == 7 and all(is_v6(i) for i in ip.split(":")):
+        return "IPv6"
+    return "Neither"
 
 
 class PingMon:
@@ -34,11 +54,14 @@ class PingMon:
         self.c_error = ''
         self.ips = ips
         self.db = dbh
-        param = '-n 1' if platform.system().lower() == 'windows' else '-c1'
-        self.cmd = 'ping' + " " + param
 
     def add_ping_host(self, host):
         self.ips.append(host)
+        return self
+
+    def remove_ping_host(self, host):
+        print("removing " + host)
+        self.ips.remove(host)
         return self
 
     def jobs(self):
@@ -47,13 +70,10 @@ class PingMon:
             return self
         for ip in self.ips:
             dt = datetime.datetime.now()
-            my_out = self.job(self.cmd + " " + ip)
-            if platform.system().lower() == 'windows':
-                search = re.search(r'.*Media = (\d+)ms.*', my_out, re.MULTILINE)
-            else:
-                search = re.search(r'.*ttl=\d+\s+time=(\S+)\s.*', my_out, re.MULTILINE)
-            if search:
-                self.save(ip, search.group(1), dt)
+            time_spent = ping3.ping(ip, unit="ms")
+            if time_spent is not None:
+                logging.info("for " + ip + " time is " + str(time_spent))
+                self.save(ip, str(time_spent), dt)
             else:
                 self.save(ip, "-50", dt)
         return self
@@ -64,78 +84,17 @@ class PingMon:
         self.db.commit()
         return
 
-    def job(self, cmd):
-        """ The job to execute (cmd + host) and return the """
-        # self.pd("Inside JOB!")
-        my_cmd = cmd.split(' ')
-        # self.pd("proc " + str(my_cmd))
-        # print("cmd is " + my_cmd)
-        output, error = subprocess.Popen(my_cmd,
-                                         shell=False,
-                                         stdout=subprocess.PIPE,
-                                         stderr=subprocess.PIPE).communicate()
-        try:
-            output = output.decode('utf-8').strip()
-        except UnicodeDecodeError:
-            output = str(output).strip()
-        # self.pd(output)
-        print("OUTPUT " + str(output))
-        if output == "":
-            sys.stderr.write("ERROR: %s" % error)
-            self.c_error = error
-            return None
-        else:
-            return output
 
-    def retry(exception_to_check, tries: object = 4, delay: object = 3, backoff: object = 2,
-              logger: object = None) -> object:
-        def deco_retry(f):
-            @wraps(f)
-            def f_retry(*args, **kwargs):
-                mtries, mdelay = tries, delay
-                while mtries > 1:
-                    try:
-                        return f(*args, **kwargs)
-                    except exception_to_check as e:
-                        msg = "%s, Retrying in %d seconds..." % (str(e), mdelay)
-                        if logger:
-                            logger.warning(msg)
-                        else:
-                            print(msg)
-                        time.sleep(mdelay)
-                        mtries -= 1
-                        mdelay *= backoff
-                return f(*args, **kwargs)
-
-            return f_retry  # true decorator
-
-        return deco_retry
-
-    @retry(URLError, tries=4, delay=3, backoff=2)
-    def get_url(self, url):
-        po = re.compile(r".*/([^/]+)$").match(url)
-        if po:
-            if os.path.isfile("cache/" + po.group(1)):
-                return open("cache/" + po.group(1), "r").read()
-            else:
-                ca = urlopen(url).read()
-                local = open("cache/" + po.group(1), "w")
-                local.write(ca)
-                return ca
-        else:
-            return urlopen(url).read()
-
-    def pd(self, msg=None):
-        if msg is not None and self.debug:
-            print("---" + str(msg))
-
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
 app = flask.Flask(__name__)
 db = Base('db_ping.pdl')
 
 if db.exists():
+    logging.info("db exists, just opening")
     db.open()
 else:
+    logging.info("creating DB")
     db.create('host', 'result', 'datetime', mode='open')
     db.commit()
     db.open()
@@ -143,8 +102,6 @@ else:
 pm = PingMon(dbh=db, debug=False)
 sched = BackgroundScheduler()
 job = sched.add_job(pm.jobs, 'interval', minutes=1)
-
-
 
 base_html = """
 <html>
@@ -180,7 +137,7 @@ $(function () {
             zoomType: 'x'
         },
         credits: {
-                  text: 'Maias "nnss" Palomec',
+                  text: 'Matias "nnss" Palomec',
                   href: 'http://nnss.net.ar',
                   style: {
                        color: '#fe8503',
@@ -193,7 +150,7 @@ $(function () {
         yAxis: {
             allowDecimals: false,
             title: {
-                text: 'host'
+                text: 'time in ms'
             },
                 plotLines:[{
                             value:0,
@@ -204,7 +161,7 @@ $(function () {
         },
         xAxis: {
             title: {
-                    text: 'Date'
+                    text: 'Time'
                     },
         },
         title: {
@@ -324,7 +281,9 @@ def send_js(path):
 @app.route("/status")
 def status():
     global sched
-    ret = "<h1>Status</h1><pre>" + str(sched.get_jobs()) + "</pre>"
+    ret = "<h1>Jobs</h1><pre>" + str(sched.print_jobs()) + "</pre><br />"
+    ret += "<pre>" + str(sched.get_jobs()) + "</pre><br />\n"
+    ret += "<h1>State</h1><pre>" + str(sched.state) + " (0 -> stopped/1 -> running/2 -> pausaed)</pre><br />"
     return tmpl.render(body=ret)
 
 
@@ -332,22 +291,40 @@ def status():
 def general_config():
     global job
     ip = flask.request.args.get("ip", None)
+    action = flask.request.args.get("action", None)
+    remove = flask.request.args.get("remove", None)
     if ip == "":
         ip = None
+    if action == "remove":
+        print("remove is " + remove)
+        pm.remove_ping_host(remove)
+        msg = remove + " was removed"
+        return flask.redirect("/config/")
     if ip is not None:
         if ip not in pm.ips:
+            if valid_ip(ip) == 'Neither':
+                msg = ""
             pm.add_ping_host(ip)
             job.remove()
             job = sched.add_job(pm.jobs, 'interval', minutes=1)
             # sched.shutdown()
-            # sched.start()
+            try:
+                sched.start()
+            except SchedulerAlreadyRunningError:
+                print("Was already running")
             print(sched.state)
-        return flask.redirect("/")
+        return flask.redirect("/config/")
     if pm.ips is not None and ip is not None and ip in pm.ips:
         return tmpl.render(body="""</head><body><h1>IP already added</h1></body></html>""")
     ret = """<h1>Add IP to monitor</h1>
-    <form action="/config" method="get"><label>ip</label><input type="text" name="ip" /><input type="submit">
+    <form action="/config" method="get"><label>ip</label><input type="text" name="ip" /><input type="submit"></form>
+    <br /><h1>Alreaddy added</h1>
     """
+    for ip in pm.ips:
+        ret += "<form action='/config' method='get'><label>" + str(ip)
+        ret += "</label>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type='submit' name='action' value='remove'>"
+        ret += "<input type='hidden' name='remove' value='" + str(ip) + "'></form>\n"
+    ret += "\n"
     return tmpl.render(body=ret)
 
 

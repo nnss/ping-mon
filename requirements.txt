@@ -1,5 +1,6 @@
-Flask==1.0.2
-PyDbLite==3.0.4
-APScheduler==3.5.3
+Flask
+PyDbLite
+APScheduler
 
-Jinja2~=2.11.2
+Jinja2
+ping3

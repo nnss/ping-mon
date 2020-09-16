@@ -18,11 +18,7 @@ dependencies and the DB to store data).
 
 # ToDo
 
-
 * tidy code
 * add inline doc for auto-document the script
-* improve HTML
-  * use templates to improve look and feel
-  * enhance the navigation menu
 * store IPs in the DB?
-* generate the Dockerfile to build the docker container
+  * remove the file and make it live in memory only?
