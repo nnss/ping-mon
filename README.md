@@ -18,6 +18,11 @@ why was slow (lost packages, bad wify, etc)
 This is not  to be a full monitoring tool, just an ICMP ping
 with a small history (24 hours).
 
+Python modules dependencies are in the requirements file.
+
+nnss
+https://github.com/nnss/ping-mon
+
 # ToDo
 
 * tidy code
