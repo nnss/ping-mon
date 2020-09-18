@@ -4,9 +4,10 @@ import logging
 import flask
 import jinja2
 import ping3
-from apscheduler.schedulers import SchedulerAlreadyRunningError
+from apscheduler.schedulers import SchedulerAlreadyRunningError, SchedulerNotRunningError
 from apscheduler.schedulers.background import BackgroundScheduler
-from pydblite import Base
+from tinydb import TinyDB, Query
+from tinydb.table import Table
 
 
 class Config(object):
@@ -40,27 +41,33 @@ def valid_ip(ip):
 
 
 class PingMon:
-    def __init__(self, dbh: Base, debug: object = True, ips=None) -> None:
+    def __init__(self, ping_table: Table, ping_hosts: Table, debug: object = True) -> None:
         """ The initialization gets:
         * dbh (Base object)
         * debug
         * ip (array)
         In a future, could get also cmd
         """
-        if ips is None:
-            ips = list()
+        ips = list()
         self.options_from_ini_file = ""
         self.debug = debug
         self.c_error = ''
+        self.ping_table = ping_table
+        self.ping_hosts = ping_hosts
+        for host in self.ping_hosts:
+            logging.debug(host['host'])
+            ips.append(host['host'])
         self.ips = ips
-        self.db = dbh
 
     def add_ping_host(self, host):
+        self.ping_hosts.insert({'host': host})
         self.ips.append(host)
         return self
 
     def remove_ping_host(self, host):
-        print("removing " + host)
+        logging.debug("removing " + host)
+        qr = Query()
+        self.ping_hosts.remove(qr.host == host)
         self.ips.remove(host)
         return self
 
@@ -80,27 +87,19 @@ class PingMon:
 
     def save(self, ip='', result='', dt=datetime.datetime.now()):
         """ Saves the info in the DB. returns nothing'"""
-        self.db.insert(ip, result, str(dt))
-        self.db.commit()
+        self.ping_table.insert({"host": ip, "result": result, "datetime": str(dt)})
         return
 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
 app = flask.Flask(__name__)
-db = Base('db_ping.pdl')
-
-if db.exists():
-    logging.info("db exists, just opening")
-    db.open()
-else:
-    logging.info("creating DB")
-    db.create('host', 'result', 'datetime', mode='open')
-    db.commit()
-    db.open()
-
-pm = PingMon(dbh=db, debug=False)
+db = TinyDB('db_ping.json')
+data_table = db.table('ping')
+hosts_table = db.table('hosts')
+pm = PingMon(ping_table=data_table, ping_hosts=hosts_table, debug=False)
 sched = BackgroundScheduler()
+sched.start()
 job = sched.add_job(pm.jobs, 'interval', minutes=1)
 
 base_html = """
@@ -249,7 +248,8 @@ def by_host(ip='8.8.8.8'):
     for my_ip in pm.ips:
         carry_title += "<li><a href='/by_host/" + my_ip + "'>by host " + my_ip + "</a></li>"
 
-    results = db(host=ip)
+    Qr = Query()
+    results = data_table.search(Qr.host == ip)
     results = sorted(results, key=lambda kv: kv['datetime'])
 
     for result in results:
@@ -293,8 +293,16 @@ def general_config():
     ip = flask.request.args.get("ip", None)
     action = flask.request.args.get("action", None)
     remove = flask.request.args.get("remove", None)
+    restart = flask.request.args.get("restart", None)
     if ip == "":
         ip = None
+    if restart == 'restart scheduler':
+        try:
+            sched.pause()
+            sched.start(job)
+        except SchedulerNotRunningError:
+            sched.start(job)
+        msg="scheduler restarted"
     if action == "remove":
         print("remove is " + remove)
         pm.remove_ping_host(remove)
@@ -324,11 +332,12 @@ def general_config():
         ret += "<form action='/config' method='get'><label>" + str(ip)
         ret += "</label>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<input type='submit' name='action' value='remove'>"
         ret += "<input type='hidden' name='remove' value='" + str(ip) + "'></form>\n"
+    ret += "<br /><form action='/config/' method='get'><input type='submit' name='restart' value='restart scheduler' /></form></br />"
     ret += "\n"
     return tmpl.render(body=ret)
 
 
 if __name__ == "__main__":
     sched.start()
-    print(str(sched.get_jobs()))
+    logging.info(str(sched.get_jobs()))
     app.run(host="0.0.0.0")
