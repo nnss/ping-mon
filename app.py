@@ -1,6 +1,6 @@
 import datetime
 import logging
-
+import os
 import flask
 import jinja2
 import ping3
@@ -94,7 +94,8 @@ class PingMon:
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.DEBUG)
 
 app = flask.Flask(__name__)
-db = TinyDB('db_ping.json')
+db_path = os.getenv("db_path")
+db = TinyDB(db_path + 'db_ping.json')
 data_table = db.table('ping')
 hosts_table = db.table('hosts')
 pm = PingMon(ping_table=data_table, ping_hosts=hosts_table, debug=False)
@@ -106,7 +107,7 @@ base_html = """
 <html>
     <head><title>ping-mon</title>
      <meta http-equiv="refresh" content="30">
-    <script src="/js/jquery-1.12.1.min.js"></script>
+    <script src="/js/jquery-1.12.4.min.js"></script>
     <script src="/js/highcharts.js"></script>
     <script src="/js/highcharts-more.js"></script>
     <script src="/js/exporting.js"></script>
@@ -338,6 +339,9 @@ def general_config():
 
 
 if __name__ == "__main__":
-    sched.start()
+    try:
+        sched.start()
+    except SchedulerAlreadyRunningError:
+        print("Was already running")
     logging.info(str(sched.get_jobs()))
     app.run(host="0.0.0.0")
