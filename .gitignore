@@ -4,6 +4,7 @@
 # Ignore the default SQLite database.
 /db/*
 *.pdl
+db_ping.json
 
 /venv/*
 
@@ -14,6 +15,7 @@
 /log/*
 /tmp/*
 __pycache__/*
+/static.bkp/*
 !/log/.keep
 !/tmp/.keep
 
